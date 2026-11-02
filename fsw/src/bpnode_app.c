@@ -81,8 +81,22 @@ void BPNode_AppMain(void)
 
         if (Status == CFE_SUCCESS)
         {
-            /* Process wakeup tasks */
-            Status = BPNode_WakeupProcess();
+            /* Commands share this pipe with the wakeup so that a scheduler that waits for each scheduled message
+             * to be received (SHIRE's PSP) can deliver housekeeping requests, which would otherwise sit unread
+             * until the next wakeup. */
+            CFE_SB_MsgId_t MsgId = CFE_SB_INVALID_MSG_ID;
+
+            CFE_MSG_GetMsgId(&BufPtr->Msg, &MsgId);
+
+            if (CFE_SB_MsgId_Equal(MsgId, CFE_SB_ValueToMsgId(BPNODE_WAKEUP_MID)))
+            {
+                /* Process wakeup tasks */
+                Status = BPNode_WakeupProcess();
+            }
+            else
+            {
+                BPA_DP_TaskPipe(BufPtr);
+            }
         }
 
         /* Exit upon pipe read error */
@@ -237,7 +251,7 @@ CFE_Status_t BPNode_AppInit(void)
     }
 
     /* Create wakeup pipe */
-    Status = CFE_SB_CreatePipe(&BPNode_AppData.WakeupPipe, BPNODE_WAKEUP_PIPE_DEPTH,
+    Status = CFE_SB_CreatePipe(&BPNode_AppData.WakeupPipe, BPNODE_WAKEUP_PIPE_DEPTH + BPNODE_CMD_MID_DEPTH,
                                 "BPNODE_WAKEUP_PIPE");
 
     if (Status != CFE_SUCCESS)
@@ -249,7 +263,7 @@ CFE_Status_t BPNode_AppInit(void)
     }
 
     /* Subscribe to ground command packets */
-    Status = CFE_SB_SubscribeEx(CFE_SB_ValueToMsgId(BPNODE_CMD_MID), BPNode_AppData.CommandPipe,
+    Status = CFE_SB_SubscribeEx(CFE_SB_ValueToMsgId(BPNODE_CMD_MID), BPNode_AppData.WakeupPipe,
             PipeQOS, BPNODE_CMD_MID_DEPTH);
     if (Status != CFE_SUCCESS)
     {
